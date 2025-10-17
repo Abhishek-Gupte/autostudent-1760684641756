@@ -6,11 +6,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export async function generateSite({ brief = "", attachments = [] }) {
-  mkdirSync(path.join(__dirname, "..", "docs"), { recursive: true });
+  const docsDir = path.join(__dirname, "..", "docs");
+  mkdirSync(docsDir, { recursive: true });
 
-  // Use first image attachment as fallback if ?url is missing:
   const firstImage = (attachments || []).find(a => (a.url || "").startsWith("data:image/"));
-  const fallback = firstImage ? firstImage.url : "";
+  const fallback = firstImage
+    ? firstImage.url
+    : "https://tesseract.projectnaptha.com/img/eng_bw.png"; // safe public sample
 
   const title = brief ? brief.slice(0, 60) : "Captcha Solver";
 
@@ -23,13 +25,13 @@ export async function generateSite({ brief = "", attachments = [] }) {
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"/>
 <style>
   body { padding: 2rem; }
-  .preview { max-width: 420px; border: 1px dashed #aaa; padding: 8px; }
+  .preview { max-width: 480px; border: 1px dashed #aaa; padding: 8px; }
   code { user-select: all; }
 </style>
 </head>
 <body class="container">
   <h1 class="mb-3">Captcha Solver (Demo)</h1>
-  <p class="text-muted">Pass an image via <code>?url=https://.../image.png</code>. If absent, I’ll use the attached sample.</p>
+  <p class="text-muted">Pass an image via <code>?url=https://.../image.png</code>. If absent, I’ll use a safe sample.</p>
 
   <div class="row g-4">
     <div class="col-md-6">
@@ -41,8 +43,8 @@ export async function generateSite({ brief = "", attachments = [] }) {
       </div>
     </div>
     <div class="col-md-6">
-      <h5>OCR Result (≤ 15s)</h5>
-      <pre id="ocr-text" class="p-2 bg-light" style="min-height:120px;"></pre>
+      <h5>OCR Result (≤ 20s)</h5>
+      <pre id="ocr-text" class="p-2 bg-light" style="min-height:140px; white-space:pre-wrap;"></pre>
     </div>
   </div>
 
@@ -52,37 +54,65 @@ export async function generateSite({ brief = "", attachments = [] }) {
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
   <script>
     const params = new URLSearchParams(location.search);
-    const img = document.getElementById('captcha-img');
-    const runBtn = document.getElementById('run-ocr');
+    const statusEl = document.getElementById('status');
     const out = document.getElementById('ocr-text');
-    const status = document.getElementById('status');
+    const img = document.getElementById('captcha-img');
+    img.crossOrigin = 'anonymous';
 
     const fallback = ${JSON.stringify(fallback)};
     const inputUrl = params.get('url') || fallback;
     if (inputUrl) img.src = inputUrl;
-    else status.textContent = "No ?url and no sample image.";
 
-    runBtn.addEventListener('click', async () => {
-      if (!img.src) { status.textContent = "No image."; return; }
-      status.textContent = "Running OCR...";
+    function withTimeout(promise, ms) {
+      return Promise.race([
+        promise,
+        new Promise((_, rej) => setTimeout(() => rej(new Error("Timed out")), ms))
+      ]);
+    }
+
+    async function fetchAsBlob(url) {
+      // Fetching then passing a Blob avoids canvas taint issues on some hosts
+      const res = await fetch(url, { mode: 'cors' });
+      if (!res.ok) throw new Error("Image fetch failed: " + res.status);
+      return await res.blob();
+    }
+
+    async function runOCR(url) {
+      statusEl.textContent = "Loading worker...";
+      const worker = await Tesseract.createWorker();
+
       try {
-        const worker = await Tesseract.createWorker('eng');
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 15000);
-        const { data: { text } } = await worker.recognize(img.src, { signal: controller.signal });
-        clearTimeout(timer);
+        await worker.load();
+        await worker.loadLanguage('eng');
+        await worker.initialize('eng');
+
+        statusEl.textContent = "Downloading image...";
+        const blob = await fetchAsBlob(url);
+
+        statusEl.textContent = "Running OCR...";
+        const result = await withTimeout(worker.recognize(blob), 20000); // 20s budget
+        const text = (result?.data?.text || "").trim();
+        out.textContent = text || "(no text recognized)";
+        statusEl.textContent = "Done";
+      } finally {
         await worker.terminate();
-        out.textContent = (text || "").trim();
-        status.textContent = "Done";
+      }
+    }
+
+    document.getElementById('run-ocr').addEventListener('click', async () => {
+      out.textContent = "";
+      if (!img.src) { statusEl.textContent = "No image."; return; }
+      try {
+        await runOCR(img.src);
       } catch (e) {
-        status.textContent = "OCR failed: " + (e.message || e);
+        statusEl.textContent = "OCR failed: " + (e && e.message ? e.message : e);
       }
     });
   </script>
 </body>
 </html>`;
 
-  writeFileSync(path.join(__dirname, "..", "docs", "index.html"), html, "utf8");
+  writeFileSync(path.join(docsDir, "index.html"), html, "utf8");
   return { title };
 }
 
