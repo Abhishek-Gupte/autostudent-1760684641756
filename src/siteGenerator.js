@@ -31,6 +31,8 @@ export async function generateSite({ brief = "", attachments = [] }) {
 </head>
 <body class="container">
   <h1 class="mb-3">Captcha Solver (Demo)</h1>
+  <span class="badge bg-success">Round 2 Enhanced Build ✅</span>
+
   <p class="text-muted">Pass an image via <code>?url=https://.../image.png</code>. If absent, I’ll use a safe sample.</p>
 
   <div class="row g-4">
