@@ -10,11 +10,14 @@ const sha = run("git rev-parse HEAD");
 const origin = run("git remote get-url origin");
 const repoHttp = origin.replace(/\.git$/, "").replace(/^git@github\.com:/, "https://github.com/");
 
-// Try to enable Pages to serve from main/docs via gh:
+// push
+run("git push");
+
+// try enable Pages main/docs (works if `gh` CLI is installed & authed)
 try {
   run("gh api -X PUT repos/{owner}/{repo}/pages -f build_type=static -F source[branch]=main -F source[path]=/docs");
 } catch {
-  console.warn("If gh API fails, set Pages manually: Settings → Pages → Branch: main, Folder: /docs");
+  console.warn("If this fails, set Pages manually: Settings → Pages → Deploy from a branch → main /docs");
 }
 
 const m = repoHttp.match(/https:\/\/github\.com\/([^/]+)\/([^/]+)/);
@@ -26,4 +29,4 @@ writeFileSync("deploy-meta.json", JSON.stringify({
   pages_url: pagesUrl
 }, null, 2));
 
-console.log("Pushed. Pages URL (may take a min to go live):", pagesUrl || "(set manually)");
+console.log("Pushed. Pages URL (may take ~1 min):", pagesUrl || "(set manually)");
